@@ -1,0 +1,6 @@
+{
+  "name": "GokouKotori.MaterialPreview.Editor",
+  "rootNamespace": "GokouKotori.MaterialPreview",
+  "includePlatforms": ["Editor"],
+  "autoReferenced": true
+}

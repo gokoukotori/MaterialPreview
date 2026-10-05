@@ -1,0 +1,92 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements">
+    <ui:Style src="MaterialPreview.uss" />
+    <ui:VisualElement class="workspace">
+        <ui:VisualElement name="setup" class="toolbar">
+            <uie:ObjectField name="avatar" label="アバター" class="avatar-field" />
+            <ui:DropdownField name="scope" label="対象" />
+            <ui:Button name="edit-selection" text="選択中の設定を編集" />
+            <ui:Button name="start" text="比較を開始" />
+            <ui:Button name="change-target" text="比較を終了・対象を変更" />
+            <ui:Button name="restore-preview" text="プレビューを復旧" />
+        </ui:VisualElement>
+        <ui:ScrollView name="roots" class="roots" />
+        <ui:Label name="status" text="アバターを指定して比較を開始してください。" class="status" />
+        <ui:VisualElement name="body" class="body">
+            <ui:VisualElement class="list-panel">
+                <ui:Label text="マテリアル" class="heading" />
+                <uie:ToolbarSearchField name="search" />
+                <ui:ScrollView name="materials" />
+            </ui:VisualElement>
+            <ui:VisualElement class="center-panel">
+                <ui:VisualElement class="toolbar">
+                    <ui:DropdownField name="display-mode" label="表示" />
+                    <ui:Button name="add" text="TO BEを追加" />
+                    <ui:Button name="duplicate" text="TO BEを複製" />
+                    <ui:Button name="focus" text="選択箇所へ" />
+                    <ui:Button name="frame" text="全体へ" />
+                </ui:VisualElement>
+                <ui:VisualElement name="lighting-panel">
+                    <ui:VisualElement class="toolbar">
+                        <ui:DropdownField name="light-preset" label="照明" tooltip="AS ISとすべてのTO BEに共通の照明です。照明はプレビュー内だけに適用します。" />
+                        <ui:Toggle name="light-shadows" label="影" />
+                        <ui:Button name="light-orbit" text="光を一周" />
+                    </ui:VisualElement>
+                    <ui:Foldout name="light-details" text="照明の調整・落ち影確認" value="false">
+                        <ui:VisualElement class="light-adjustments">
+                            <ui:VisualElement name="light-direction-slot" />
+                            <ui:VisualElement class="light-sliders">
+                                <ui:Slider name="light-azimuth" label="左右" low-value="-180" high-value="180" tooltip="0°: 正面 / ±90°: 横 / ±180°: 逆光。カメラの左右回転に追従します。" />
+                                <ui:Slider name="light-elevation" label="高さ" low-value="-80" high-value="80" tooltip="水平を0°とした光の高さです。" />
+                                <ui:Slider name="light-intensity" label="光の強さ" low-value="0" high-value="5" />
+                                <ui:Slider name="light-ambient" label="環境の明るさ" low-value="0" high-value="1" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement class="toolbar">
+                            <uie:ColorField name="light-color" label="光の色" show-alpha="false" hdr="false" />
+                            <ui:Toggle name="light-floor" label="床" tooltip="足元に影を受ける床を表示します。" />
+                            <ui:Toggle name="light-occluder" label="遮蔽物" tooltip="光の手前に箱を置き、影を受ける設定を確認します。" />
+                        </ui:VisualElement>
+                    </ui:Foldout>
+                </ui:VisualElement>
+                <ui:VisualElement name="cards" class="cards" tooltip="左・右ドラッグ: 回転 / 中ドラッグ: 平行移動 / ホイール: 拡大縮小" />
+                <ui:ScrollView name="property-comparison" class="property-comparison" mode="Horizontal">
+                  <ui:VisualElement name="property-columns">
+                    <ui:VisualElement class="baseline-panel">
+                        <ui:Label text="AS IS（参照専用）" class="heading" tooltip="選択マテリアルの比較開始時点の設定です。" />
+                        <ui:ScrollView name="baseline-inspector" vertical-scroller-visibility="AlwaysVisible" />
+                    </ui:VisualElement>
+                  </ui:VisualElement>
+                </ui:ScrollView>
+                <ui:ScrollView name="candidates" />
+            </ui:VisualElement>
+            <ui:VisualElement name="editor-panel" class="editor-panel">
+                <ui:Label name="editor-title" text="編集する案とマテリアルを選択" class="heading" />
+                <ui:Slider name="editor-width" label="編集欄の幅" low-value="330" high-value="600" />
+                <ui:Label name="edit-mode-help" class="help" />
+                <ui:Button name="reset" text="選択マテリアルをリセット" />
+                <ui:ScrollView name="inspector" vertical-scroller-visibility="AlwaysVisible" />
+                <ui:Foldout name="existing-foldout" text="既存の上書き（選択マテリアル）" value="true">
+                    <ui:ScrollView name="existing-overrides" />
+                </ui:Foldout>
+                <ui:Label text="今回の変更" class="heading" />
+                <ui:ScrollView name="changes" class="changes" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement class="save-row">
+            <ui:DropdownField name="save-candidate" label="保存対象" />
+            <uie:EnumField name="save-mode" label="保存方式" />
+            <uie:ObjectField name="output" label="Variant保存先" />
+            <ui:Button name="save" text="内容を確認して保存" />
+        </ui:VisualElement>
+        <ui:Label name="save-help" class="help" />
+        <ui:Foldout name="usage-help" text="補足・制限" value="false">
+            <ui:ScrollView name="usage-help-content">
+                <ui:Label name="shader-side-effects-help" text="Shader付属GUIによるTexture加工・アセット生成・外部保存は保護対象外です。案の破棄・リセット・保存失敗時の復元では取り消せず、Undoできる保証もありません。" class="help" />
+                <ui:Label name="save-validation-help" text="保存検証はMaterial状態の一致を確認します。形状・描画画像・最終的な外観の一致は保証しません。" class="help" />
+                <ui:Label name="save-details" class="help" />
+            </ui:ScrollView>
+        </ui:Foldout>
+    </ui:VisualElement>
+</ui:UXML>
+
+

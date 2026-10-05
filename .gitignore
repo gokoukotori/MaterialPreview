@@ -1,0 +1,4 @@
+# Package-internal test assemblies and fixtures are not distributed.
+/Tests/
+/Tests.meta
+/Docs/

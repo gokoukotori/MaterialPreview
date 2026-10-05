@@ -1,0 +1,94 @@
+{
+  "action_sets": [
+    {
+      "name": "/actions/materialpreview",
+      "usage": "leftright"
+    }
+  ],
+  "actions": [
+    {
+      "name": "/actions/materialpreview/in/pose_left",
+      "type": "pose",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/stick_left",
+      "type": "vector2",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/menu_left",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/select_left",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/grip_left",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/pose_right",
+      "type": "pose",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/stick_right",
+      "type": "vector2",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/menu_right",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/select_right",
+      "type": "boolean",
+      "requirement": "optional"
+    },
+    {
+      "name": "/actions/materialpreview/in/grip_right",
+      "type": "boolean",
+      "requirement": "optional"
+    }
+  ],
+  "default_bindings": [
+    {
+      "controller_type": "meta_quest_touch_plus",
+      "binding_url": "bindings_meta_quest_touch_plus.json"
+    },
+    {
+      "controller_type": "oculus_touch",
+      "binding_url": "bindings_oculus_touch.json"
+    },
+    {
+      "controller_type": "knuckles",
+      "binding_url": "bindings_knuckles.json"
+    },
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings_vive_controller.json"
+    }
+  ],
+  "localization": [
+    {
+      "language_tag": "en_US",
+      "/actions/materialpreview": "Material Preview",
+      "/actions/materialpreview/in/pose_left": "pose left",
+      "/actions/materialpreview/in/stick_left": "stick left",
+      "/actions/materialpreview/in/menu_left": "menu left",
+      "/actions/materialpreview/in/select_left": "select left",
+      "/actions/materialpreview/in/grip_left": "grip left",
+      "/actions/materialpreview/in/pose_right": "pose right",
+      "/actions/materialpreview/in/stick_right": "stick right",
+      "/actions/materialpreview/in/menu_right": "menu right",
+      "/actions/materialpreview/in/select_right": "select right",
+      "/actions/materialpreview/in/grip_right": "grip right"
+    }
+  ]
+}

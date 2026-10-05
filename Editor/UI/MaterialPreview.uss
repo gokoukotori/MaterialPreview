@@ -1,0 +1,58 @@
+.workspace { flex-grow: 1; min-height: 0; padding: 8px; }
+.toolbar { flex-direction: row; align-items: center; margin-bottom: 6px; flex-wrap: wrap; flex-shrink: 0; }
+.toolbar > * { margin-right: 6px; flex-shrink: 0; }
+.avatar-field { min-width: 280px; flex-grow: 1; }
+.body { flex-direction: row; flex-grow: 1; flex-basis: 0; min-height: 0; overflow: hidden; }
+.list-panel { width: 220px; flex-shrink: 0; min-width: 0; min-height: 0; margin-right: 8px; overflow: hidden; }
+.center-panel { flex-grow: 1; flex-basis: 0; min-width: 220px; min-height: 0; overflow: hidden; }
+.property-comparison { display: none; flex-grow: 1; flex-basis: 0; min-width: 0; min-height: 0; }
+#property-comparison > .unity-scroll-view__content-and-vertical-scroll-container > .unity-scroll-view__content-viewport > .unity-scroll-view__content-container { height: 100%; }
+#property-columns { flex-direction: row; flex-shrink: 0; height: 100%; }
+.baseline-panel, .editor-panel.comparison-editor, .candidate-inspector-panel { width: 400px; min-width: 400px; flex-shrink: 0; min-height: 0; }
+.candidate-inspector-panel { margin-left: 8px; }
+.candidate-inspector-scroll { flex-grow: 1; flex-basis: 0; min-height: 0; }
+#baseline-inspector { flex-grow: 1; flex-basis: 0; min-height: 0; }
+.editor-panel { width: 330px; flex-shrink: 0; min-height: 0; margin-left: 8px; }
+.heading { -unity-font-style: bold; margin-bottom: 6px; font-size: 14px; flex-shrink: 0; white-space: normal; }
+.cards { flex-direction: row; flex-grow: 1; flex-basis: 0; min-height: 0; overflow: hidden; }
+.card { flex-grow: 1; flex-basis: 0; min-width: 100px; margin-right: 4px; background-color: rgb(28, 30, 34); }
+.card-title { color: rgb(225, 229, 235); padding: 6px; -unity-font-style: bold; flex-shrink: 0; white-space: normal; }
+.preview-image { flex-grow: 1; flex-basis: 0; min-height: 0; }
+.selected-row { background-color: rgb(49, 78, 105); }
+.material-row { min-height: 34px; -unity-text-align: middle-left; white-space: normal; margin-bottom: 3px; }
+.status { white-space: normal; margin-top: 6px; margin-bottom: 6px; flex-shrink: 0; }
+.help { white-space: normal; color: rgb(175, 181, 191); margin-top: 4px; margin-bottom: 4px; flex-shrink: 0; }
+.changes { max-height: 130px; }
+.save-row { flex-direction: row; align-items: center; flex-wrap: wrap; margin-top: 8px; flex-shrink: 0; }
+.save-row > * { margin-right: 6px; flex-shrink: 0; }
+.candidate-row { flex-direction: row; align-items: center; flex-shrink: 0; min-height: 24px; }
+.candidate-name { flex-grow: 1; flex-basis: 0; width: 0; min-width: 60px; }
+.candidate-row > Button, .candidate-row > Toggle { flex-shrink: 0; }
+#candidates .unity-scroll-view__content-container { width: 100%; }
+.roots { max-height: 85px; flex-shrink: 0; }
+.workspace .unity-base-field__label { min-width: 0; width: auto; margin-right: 6px; flex-shrink: 0; }
+#avatar { min-width: 280px; }
+#scope { width: 180px; }
+#display-mode { width: 180px; min-width: 0; max-width: 100%; flex-shrink: 1; }
+#save-candidate { width: 220px; }
+#save-mode { width: 260px; }
+#output { width: 280px; }
+#materials, #inspector { flex-grow: 1; flex-basis: 0; min-height: 0; }
+#search, #reset { flex-shrink: 0; }
+#search { width: auto; min-width: 0; max-width: 100%; margin-left: 0; margin-right: 0; }
+#search .unity-base-field { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; }
+#search .unity-base-field__input { min-width: 0; }
+#editor-width { flex-shrink: 0; }
+#changes { flex-shrink: 0; max-height: 100px; }
+#existing-foldout, #usage-help { flex-shrink: 0; }
+#usage-help-content { max-height: 160px; }
+#existing-overrides { max-height: 180px; }
+#candidates { flex-shrink: 0; max-height: 100px; }
+#lighting-panel { flex-shrink: 0; margin-bottom: 6px; }
+#light-preset { width: 175px; }
+.light-adjustments { flex-direction: row; align-items: center; flex-wrap: wrap; }
+#light-direction { width: 88px; height: 88px; flex-shrink: 0; }
+.light-sliders { flex-grow: 1; flex-basis: 200px; min-width: 200px; }
+.light-sliders .unity-base-field__label { width: 90px; }
+.light-sliders .unity-base-slider__text-field { width: 45px; min-width: 45px; }
+#light-color { width: 150px; }

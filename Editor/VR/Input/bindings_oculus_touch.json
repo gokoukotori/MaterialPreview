@@ -1,0 +1,93 @@
+{
+  "controller_type": "oculus_touch",
+  "name": "Material Preview",
+  "description": "Long hold menu to toggle; stick to move/select; trigger to confirm.",
+  "bindings": {
+    "/actions/materialpreview": {
+      "poses": [
+        {
+          "output": "/actions/materialpreview/in/pose_left",
+          "path": "/user/hand/left/pose/raw"
+        },
+        {
+          "output": "/actions/materialpreview/in/pose_right",
+          "path": "/user/hand/right/pose/raw"
+        }
+      ],
+      "sources": [
+        {
+          "mode": "joystick",
+          "path": "/user/hand/left/input/joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/materialpreview/in/stick_left"
+            }
+          }
+        },
+        {
+          "mode": "button",
+          "path": "/user/hand/left/input/y",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/menu_left"
+            }
+          }
+        },
+        {
+          "mode": "trigger",
+          "path": "/user/hand/left/input/trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/select_left"
+            }
+          }
+        },
+        {
+          "mode": "button",
+          "path": "/user/hand/left/input/grip",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/grip_left"
+            }
+          }
+        },
+        {
+          "mode": "joystick",
+          "path": "/user/hand/right/input/joystick",
+          "inputs": {
+            "position": {
+              "output": "/actions/materialpreview/in/stick_right"
+            }
+          }
+        },
+        {
+          "mode": "button",
+          "path": "/user/hand/right/input/b",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/menu_right"
+            }
+          }
+        },
+        {
+          "mode": "trigger",
+          "path": "/user/hand/right/input/trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/select_right"
+            }
+          }
+        },
+        {
+          "mode": "button",
+          "path": "/user/hand/right/input/grip",
+          "inputs": {
+            "click": {
+              "output": "/actions/materialpreview/in/grip_right"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
