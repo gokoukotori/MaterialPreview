@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-06
+
 ### Added
 
 - Rendererを持つGameObjectの右クリックから、そのRendererだけを通常・VRプレビューに表示してマテリアルをスロット別に比較・編集する機能を追加。
