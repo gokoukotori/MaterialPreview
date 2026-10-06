@@ -14,7 +14,10 @@ namespace GokouKotori.MaterialPreview
         sealed class Context
         {
             internal Dictionary<string, PropertyValue> Baseline;
+            internal Dictionary<string, PropertyValue> Comparison;
             internal Action Changed;
+            internal HashSet<string> ReadOnly;
+            internal Shader Shader;
         }
         static readonly Dictionary<Material, Context> contexts = new Dictionary<Material, Context>();
         static bool installed;
@@ -23,13 +26,15 @@ namespace GokouKotori.MaterialPreview
         static GUIStyle buttonStyle;
         static GUIContent buttonContent;
 
-        internal static void Register(Material material, Material baseline, Action changed)
+        internal static void Register(Material material, Material baseline, Action changed, IEnumerable<string> readOnly = null, Material comparisonBaseline = null)
         {
             Install();
             contexts[material] = new Context
             {
                 Baseline = MaterialDelta.Values(baseline).ToDictionary(p => p.Name),
-                Changed = changed
+                Comparison = MaterialDelta.Values(comparisonBaseline != null ? comparisonBaseline : baseline).ToDictionary(p => p.Name),
+                Changed = changed, Shader = baseline.shader,
+                ReadOnly = new HashSet<string>(readOnly ?? Enumerable.Empty<string>())
             };
         }
         internal static void Unregister(Material material)
@@ -45,6 +50,8 @@ namespace GokouKotori.MaterialPreview
                 throw new InvalidOperationException("変更箇所の表示にはVRC SDKのHarmonyと対応するUnity Editorが必要です。");
             var harmony = Activator.CreateInstance(harmonyType, "com.gokoukotori.material-preview.change-markers");
             var postfix = Activator.CreateInstance(methodType, typeof(ShaderChangeMarkers).GetMethod(nameof(Draw), Integration.Flags));
+            var prefix = Activator.CreateInstance(methodType, typeof(ShaderChangeMarkers).GetMethod(nameof(BeginProperty), Integration.Flags));
+            var finalizer = Activator.CreateInstance(methodType, typeof(ShaderChangeMarkers).GetMethod(nameof(EndProperty), Integration.Flags));
             var patch = harmonyType.GetMethods().Single(m => m.Name == "Patch");
             var names = new HashSet<string>
             {
@@ -62,8 +69,15 @@ namespace GokouKotori.MaterialPreview
                     if (args.Length < 2 || (args[0].ParameterType != typeof(Rect) && args[0].ParameterType != typeof(Rect).MakeByRefType())
                         || (args[1].ParameterType != typeof(UnityEditor.MaterialProperty) && args[1].ParameterType != typeof(UnityEditor.MaterialProperty).MakeByRefType())) continue;
                     var parameters = new object[patch.GetParameters().Length];
-                    parameters[0] = method; parameters[2] = postfix;
+                    parameters[0] = method; parameters[1] = prefix; parameters[2] = postfix; parameters[4] = finalizer;
                     patch.Invoke(harmony, parameters); count++;
+                }
+                foreach (var name in new[] { "textureValue", "textureScaleAndOffset" })
+                {
+                    var parameters = new object[patch.GetParameters().Length];
+                    parameters[0] = typeof(UnityEditor.MaterialProperty).GetProperty(name).SetMethod;
+                    parameters[1] = Activator.CreateInstance(methodType, typeof(ShaderChangeMarkers).GetMethod(nameof(CanSetProperty), Integration.Flags));
+                    patch.Invoke(harmony, parameters);
                 }
                 if (count == 0) throw new InvalidOperationException("変更箇所の表示に対応するMaterialEditor APIがありません。");
                 installed = true;
@@ -73,6 +87,29 @@ namespace GokouKotori.MaterialPreview
             {
                 harmonyType.GetMethod("UnpatchSelf").Invoke(harmony, null);
                 throw;
+            }
+        }
+        internal static bool IsReadOnly(UnityEditor.MaterialProperty property) => property?.targets != null
+            && property.targets.OfType<Material>().Any(m => contexts.TryGetValue(m, out var context) && context.ReadOnly.Contains(property.name));
+
+        static void BeginProperty(UnityEditor.MaterialProperty __1, out bool __state)
+        {
+            __state = GUI.enabled;
+            if (IsReadOnly(__1)) GUI.enabled = false;
+        }
+        static Exception EndProperty(Exception __exception, bool __state) { GUI.enabled = __state; return __exception; }
+        static bool CanSetProperty(UnityEditor.MaterialProperty __instance) => !IsReadOnly(__instance);
+        internal static void RestoreProtected(Material material)
+        {
+            if (!contexts.TryGetValue(material, out var context) || context.ReadOnly.Count == 0) return;
+            if (material.shader == null || context.ReadOnly.Any(name => material.shader.FindPropertyIndex(name) < 0
+                || material.shader.GetPropertyType(material.shader.FindPropertyIndex(name)) != ShaderPropertyType.Texture)) material.shader = context.Shader;
+            else context.Shader = material.shader;
+            foreach (var name in context.ReadOnly)
+            {
+                var value = context.Baseline[name];
+                var index = material.shader.FindPropertyIndex(name);
+                if (index >= 0 && !value.Same(PropertyValue.Read(material, index))) value.Apply(material);
             }
         }
         static bool Same(PropertyValue value, UnityEditor.MaterialProperty property)
@@ -95,7 +132,7 @@ namespace GokouKotori.MaterialPreview
             var targets = __1.targets;
             if (targets == null || targets.Length != 1 || !(targets[0] is Material material) || material == null || material.shader == null
                 || !contexts.TryGetValue(material, out var context)
-                || !context.Baseline.TryGetValue(__1.name, out var original)) return;
+                || !context.Comparison.TryGetValue(__1.name, out var original)) return;
             var index = material.shader.FindPropertyIndex(__1.name);
             if (index < 0 || material.shader.GetPropertyType(index) != original.Type || Same(original, __1)) return;
             if (!(margin.GetValue(null) is float left) || !(clip.GetValue(null) is Rect clipping)) return;
@@ -115,7 +152,7 @@ namespace GokouKotori.MaterialPreview
             else if (Event.current.type == EventType.Repaint)
             {
                 if (buttonStyle == null) buttonStyle = new GUIStyle(EditorStyles.miniButton) { padding = new RectOffset(0, 0, 0, 0) };
-                if (buttonContent == null) buttonContent = new GUIContent(EditorGUIUtility.IconContent("d_Toolbar Minus").image, "この項目の変更をAS ISに戻す");
+                if (buttonContent == null) buttonContent = new GUIContent(EditorGUIUtility.IconContent("d_Toolbar Minus").image, "この項目を比較元の値に戻す");
                 buttonStyle.Draw(rect, buttonContent, false, false, false, false);
             }
         }

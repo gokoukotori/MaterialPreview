@@ -22,6 +22,7 @@ namespace GokouKotori.MaterialPreview
         [SerializeField] string outputFolder = "Assets";
 
         ComparisonRenderer rendering;
+        ComparisonChangeTracker changes;
         double nextUpdate;
         double nextCameraFrame, lastCameraInput = double.NegativeInfinity;
         bool cameraRenderPending;
@@ -50,13 +51,42 @@ namespace GokouKotori.MaterialPreview
         InspectorElement shaderInspector;
         Shader editorShader;
         string candidateSignature;
-        bool SelectedHasChanges => session != null && saving >= 0 && saving < session.Candidates.Count && session.CandidateChanged(session.Candidates[saving]);
+        sealed class CachedMaterialChange
+        {
+            internal ComparisonChangeTracker.Version Baseline, Material;
+            internal MaterialDelta Delta;
+        }
+        readonly Dictionary<(Material, Material), CachedMaterialChange> materialChanges = new Dictionary<(Material, Material), CachedMaterialChange>();
+        // UI-only cache: saving and its full validation always compute fresh deltas.
+        MaterialDelta UiDelta(MaterialEntry entry, Material material) => CachedDelta(entry.Baseline, material);
+        MaterialDelta CachedDelta(Material baseline, Material material)
+        {
+            var key = (baseline, material);
+            if (!materialChanges.TryGetValue(key, out var cached)
+                || cached.Baseline.Changed || cached.Material.Changed)
+            {
+                cached = new CachedMaterialChange { Baseline = new ComparisonChangeTracker.Version(baseline),
+                    Material = new ComparisonChangeTracker.Version(material), Delta = MaterialDelta.Between(baseline, material) };
+                materialChanges[key] = cached;
+            }
+            return cached.Delta;
+        }
+        bool UiCandidateChanged(Candidate candidate) => (session.EditingComponent
+                && JsonUtility.ToJson(candidate.Override) != JsonUtility.ToJson(session.OriginalOverride))
+            || session.Entries.Where((entry, index) => UiDelta(entry, candidate.Materials[index]).Changed).Any();
+        bool UiHasChanges => !session.Saved && session.Candidates.Any(UiCandidateChanged);
+        bool SelectedHasChanges => session != null && saving >= 0 && saving < session.Candidates.Count && UiCandidateChanged(session.Candidates[saving]);
+        void ReleaseChangeTracking()
+        {
+            changes?.Dispose(); changes = null;
+            materialChanges.Clear(); candidateSignature = null;
+        }
 
         void RestorePreview()
         {
             if (session == null) return;
             if (rendering == null) rendering = new ComparisonRenderer(session) { Lighting = lighting };
-
+            ReleaseChangeTracking();
             blocked = false; error = null;
             if (rootVisualElement.Q("cards") != null) CandidatesUI();
         }
@@ -70,9 +100,11 @@ namespace GokouKotori.MaterialPreview
         void ReleaseComparison()
         {
             StopVrPreview();
+            ReleaseChangeTracking();
             ReleaseShaderEditor(); rendering?.Dispose(); rendering = null;
             if (session != null) { session.Release(); DestroyImmediate(session); session = null; }
             blocked = false; error = null; hasUnsavedChanges = false;
+            rendererSlot = -1; rendererTargetPending = false;
             cameraRenderPending = false; lastCameraInput = double.NegativeInfinity;
             StopLightOrbit();
         }
@@ -134,9 +166,9 @@ namespace GokouKotori.MaterialPreview
                         scroll.AddToClassList("candidate-inspector-scroll");
                         item.Panel.Add(scroll);
                         item.Editor = (UnityEditor.MaterialEditor)Editor.CreateEditor(material, typeof(UnityEditor.MaterialEditor));
-                        ShaderChangeMarkers.Register(material, session.Entries[selected].Baseline, () => { Changed(); Repaint(); });
+                        ShaderChangeMarkers.Register(material, session.Entries[selected].Baseline, () => { Changed(); Repaint(); }, session.Mlic.ReadOnlyProperties(session.Entries[selected].Baseline).Select(p => p.Name), session.Entries[selected].ComparisonBaseline);
                         UnityEditorInternal.InternalEditorUtility.SetIsInspectorExpanded(material, true);
-                        item.Inspector = new InspectorElement(item.Editor); scroll.Add(item.Inspector);
+                        item.Inspector = CreateShaderInspector(item.Editor); scroll.Add(item.Inspector);
                     }
                     item.Title.text = candidate.Name;
                     item.Inspector.SetEnabled(CanEdit());
@@ -182,6 +214,20 @@ namespace GokouKotori.MaterialPreview
             ResizeEditorPanel();
             UpdateShaderInspector();
         }
+        static InspectorElement CreateShaderInspector(UnityEditor.MaterialEditor editor)
+        {
+            var inspector = new InspectorElement(editor);
+            foreach (var container in inspector.Query<IMGUIContainer>().ToList())
+            {
+                var draw = container.onGUIHandler;
+                container.onGUIHandler = () =>
+                {
+                    try { draw?.Invoke(); }
+                    finally { if (editor != null && editor.target is Material material) ShaderChangeMarkers.RestoreProtected(material); }
+                };
+            }
+            return inspector;
+        }
         void UpdateShaderInspector()
         {
             if (rootVisualElement.Q("inspector") == null) return;
@@ -195,15 +241,15 @@ namespace GokouKotori.MaterialPreview
             {
                 ReleaseShaderEditor();
                 shaderEditor = (UnityEditor.MaterialEditor)Editor.CreateEditor(material, typeof(UnityEditor.MaterialEditor));
-                ShaderChangeMarkers.Register(material, session.Entries[selected].Baseline, () => { Changed(); Repaint(); });
+                ShaderChangeMarkers.Register(material, session.Entries[selected].Baseline, () => { Changed(); Repaint(); }, session.Mlic.ReadOnlyProperties(session.Entries[selected].Baseline).Select(p => p.Name), session.Entries[selected].ComparisonBaseline);
                 UnityEditorInternal.InternalEditorUtility.SetIsInspectorExpanded(material, true);
                 editorShader = material.shader;
-                shaderInspector = new InspectorElement(shaderEditor);
+                shaderInspector = CreateShaderInspector(shaderEditor);
                 rootVisualElement.Q<ScrollView>("inspector").Add(shaderInspector);
             }
             shaderInspector.SetEnabled(CanEdit());
             if (!propertyComparison) { ReleaseBaselineEditor(); ReleaseCandidateInspectors(); return; }
-            var baseline = session.Entries[selected].Baseline;
+            var baseline = session.Entries[selected].ComparisonBaseline;
             if (baselineEditor == null || baselineSource != baseline || baselineInspector?.parent == null)
             {
                 ReleaseBaselineEditor();
@@ -250,6 +296,7 @@ namespace GokouKotori.MaterialPreview
             if (selection is Component component && ExistingOverrides.IsSupported(component)) { SelectComponent(component); return; }
             var go = selection as GameObject;
             if (go == null) { Status("Hierarchyで編集する設定を選択してください。"); return; }
+            if (go.GetComponents<Renderer>().Any(RendererEdit.CanOpen)) { OpenRendererSelection(go); return; }
             var components = go.GetComponents<Component>().Where(ExistingOverrides.IsSupported).ToArray();
             if (components.Length == 0) { SelectAvatar(go); return; }
             if (components.Length == 1) { SelectComponent(components[0]); return; }
@@ -298,6 +345,7 @@ namespace GokouKotori.MaterialPreview
         void OnDisable()
         {
             StopVrPreview();
+            ReleaseChangeTracking();
             if (VrDependencies.Installing) VrDependencies.Cancel();
             StopLightOrbit();
             ReleaseShaderEditor();
@@ -307,6 +355,7 @@ namespace GokouKotori.MaterialPreview
         void OnDestroy() { if (session != null) { session.Release(); DestroyImmediate(session); } }
         void OnUndo()
         {
+            materialChanges.Clear();
             if (session != null)
             {
                 session.Revision++;
@@ -331,13 +380,15 @@ namespace GokouKotori.MaterialPreview
             var avatarField = rootVisualElement.Q<ObjectField>("avatar"); avatarField.objectType = typeof(GameObject);
             avatarField.value = avatar; avatarField.RegisterValueChangedCallback(e => avatar = e.newValue as GameObject);
             var scope = rootVisualElement.Q<DropdownField>("scope"); scope.choices = new List<string> {"アバター全体", "衣装全体"};
-            scope.index = outfit ? 1 : 0; scope.RegisterValueChangedCallback(e => { outfit = scope.index == 1; RootsUI(); });
+            if (session != null && session.RendererOnly) scope.choices.Add("選択Rendererのみ");
+            scope.index = session != null && session.RendererOnly ? 2 : outfit ? 1 : 0;
+            scope.RegisterValueChangedCallback(e => { outfit = scope.index == 1; RootsUI(); });
             rootVisualElement.Q<Button>("start").clicked += StartComparison;
             rootVisualElement.Q<Button>("edit-selection").clicked += () => OpenSelection(Selection.activeObject);
             rootVisualElement.Q<Button>("change-target").clicked += () => Guard(() =>
             {
                 if (!ConfirmEndComparison()) return;
-                ReleaseComparison(); Refresh();
+                ReleaseComparison(); CreateGUI();
             });
             rootVisualElement.Q<Button>("restore-preview").clicked += () => Guard(() =>
             {
@@ -375,12 +426,17 @@ namespace GokouKotori.MaterialPreview
             UpdateDisplayMode();
         }
         Candidate Current => session != null && editing >= 0 && editing < session.Candidates.Count ? session.Candidates[editing] : null;
-        bool CanEdit() => session != null && !session.Saved && Current != null && selected >= 0 && selected < session.Entries.Count;
+        bool CanEdit() => session != null && !session.Saved && Current != null && selected >= 0 && selected < session.Entries.Count
+            && (!session.RendererOnly || !rendererTargetPending);
         void UpdateControls()
         {
             if (rootVisualElement.Q("add") == null) return;
             bool editable = session != null && !session.Saved;
             var componentMode = session != null && session.EditingComponent;
+            var baselineTitle = rootVisualElement.Q<Label>("baseline-title");
+            baselineTitle.text = componentMode ? "Override元（参照専用）" : "AS IS（参照専用）";
+            baselineTitle.tooltip = componentMode ? "選択した設定を適用する直前の値です。前段の上書きを含みます。" : "選択マテリアルの比較開始時点の設定です。";
+            rootVisualElement.Q<Label>("changes-title").text = componentMode ? "Override元との差分" : "今回の変更";
             rootVisualElement.Q("save-mode").SetEnabled(!componentMode);
             rootVisualElement.Q<Button>("reset").text = componentMode ? "選択設定の編集をすべてリセット" : "選択マテリアルをリセット";
             var editHelp = rootVisualElement.Q<Label>("edit-mode-help");
@@ -399,8 +455,9 @@ namespace GokouKotori.MaterialPreview
             foreach (var id in new[] {"focus", "frame"}) rootVisualElement.Q<Button>(id).SetEnabled(rendering != null);
             rootVisualElement.Q("lighting-panel").SetEnabled(rendering != null);
             var save = rootVisualElement.Q<Button>("save");
-            save.SetEnabled(editable && !blocked && SelectedHasChanges);
-            save.tooltip = blocked ? error ?? "元の設定が変わっています。比較を開始し直してください。" : !editable ? reason : !SelectedHasChanges ? "保存対象の案には変更がありません。" : "";
+            var selectedChanged = editable && SelectedHasChanges;
+            save.SetEnabled(editable && !blocked && selectedChanged);
+            save.tooltip = blocked ? error ?? "元の設定が変わっています。比較を開始し直してください。" : !editable ? reason : !selectedChanged ? "保存対象の案には変更がありません。" : "";
             rootVisualElement.Q<Button>("restore-preview").SetEnabled(session != null);
             rootVisualElement.Q<Button>("start").SetEnabled(true);
             rootVisualElement.Q<Button>("change-target").SetEnabled(session != null);
@@ -423,6 +480,10 @@ namespace GokouKotori.MaterialPreview
         }
         void StartComparison()
         {
+            if (session != null && session.RendererOnly)
+            {
+                SelectRenderer(session.PreviewRenderer, rendererSlot, restart: true); return;
+            }
             if (!ConfirmEndComparison()) return;
             Guard(() =>
             {
@@ -463,45 +524,46 @@ namespace GokouKotori.MaterialPreview
             nextUpdate = EditorApplication.timeSinceStartup + (vr == null ? .1 : .25);
             try
             {
-                var candidatesChanged = true;
-                var sourceChanged = true;
-                if (vr != null && session != null)
-                {
-                    if (vrChanges == null) vrChanges = new VrChangeTracker(session);
-                    candidatesChanged = vrChanges.CandidatesChanged();
-                    sourceChanged = vrChanges.SourceChanged();
-                    if (!candidatesChanged && !sourceChanged) return;
-                }
-                UpdateShaderInspector();
                 if (session == null) return;
+                var initialInspection = changes == null;
+                if (changes == null) changes = new ComparisonChangeTracker(session);
+                var candidatesChanged = changes.CandidatesChanged();
+                var sourceChanged = initialInspection || blocked || changes.SourceChanged();
+                if (vr != null && !candidatesChanged && !sourceChanged) return;
                 if (candidatesChanged)
                 {
+                    foreach (var material in session.Candidates.SelectMany(c => c.Materials)) ShaderChangeMarkers.RestoreProtected(material);
+                    UpdateShaderInspector();
                     session.SyncComponentEdits();
                     var signature = string.Join("\n", session.Candidates.SelectMany(c => c.Materials).Select(m => EditorJsonUtility.ToJson(m)));
                     if (signature != candidateSignature)
                     {
                         candidateSignature = signature; session.Revision++; ChangesUI();
                     }
-                    hasUnsavedChanges = session.HasChanges;
+                    hasUnsavedChanges = UiHasChanges;
                 }
                 saveChangesMessage = "Material Previewに未保存の案があります。保存では選択中の保存対象を使用します。";
                 if (rendering == null) { UpdateControls(); return; }
                 string previewMessage = null;
                 if (!session.Saved && sourceChanged)
                 {
-                    try { session.Validate(); blocked = false; vrChanges?.CaptureSources(); }
+                    try { session.Validate(); blocked = false; changes.CaptureSources(); }
                     catch (Exception ex) { blocked = true; previewMessage = Integration.Message(ex) + " 案は編集できますが、保存には比較の再開始が必要です。"; }
                 }
                 if (vr == null)
                 {
+                    // Preserve live pose/blend-shape updates independently of material inspection.
                     rendering.Update(session.Candidates.Where(c => c.Visible).Take(3), !blocked);
                     foreach (var image in images) image.MarkDirtyRepaint();
                 }
-                UpdateControls();
+                if (candidatesChanged || sourceChanged)
+                {
+                    UpdateControls();
+                    changes.CaptureCandidates();
+                }
                 Status(previewMessage ?? error ?? (session.Saved ? "保存済み。AS ISを保持しています。続ける場合は比較を開始し直してください。"
                     : "AS ISを保持 / 編集: " + Current?.Name + " / " + session.Entries.Count + " マテリアル"
                         + (session.Warnings.Count == 0 ? "" : "\n" + string.Join("\n", session.Warnings))));
-                vrChanges?.CaptureCandidates();
             }
             catch (Exception ex) { error = Integration.Message(ex); blocked = true; UpdateControls(); Status(error); }
         }
@@ -521,6 +583,7 @@ namespace GokouKotori.MaterialPreview
         void Refresh()
         {
             if (rootVisualElement.Q("materials") == null) return;
+            RendererTargetUI();
             MaterialsUI(); CandidatesUI(); ChangesUI();
             UpdateShaderInspector();
             UpdateControls();
@@ -530,6 +593,7 @@ namespace GokouKotori.MaterialPreview
         {
             var list = rootVisualElement.Q<ScrollView>("materials"); list.Clear();
             if (session == null) return;
+            if (session.RendererOnly) { RendererMaterialsUI(list); return; }
             for (int i = 0; i < session.Entries.Count; i++)
             {
                 var entry = session.Entries[i]; int index = i;
@@ -580,6 +644,7 @@ namespace GokouKotori.MaterialPreview
                     var edited = Current; var saved = session.Candidates[saving];
                     if (edited == candidate) ReleaseShaderEditor();
                     else ReleaseCandidateInspectors();
+                    materialChanges.Clear();
                     session.Remove(candidate); editing = Mathf.Max(0, session.Candidates.IndexOf(edited));
                     saving = Mathf.Max(0, session.Candidates.IndexOf(saved)); Refresh();
                 }) {name = "delete-candidate-" + index, text = "削除"};
@@ -633,7 +698,7 @@ namespace GokouKotori.MaterialPreview
         {
             error = null;
             session.SyncComponentEdits();
-            session.Revision++; hasUnsavedChanges = session.HasChanges;
+            session.Revision++; hasUnsavedChanges = UiHasChanges;
             rootVisualElement.schedule.Execute(ChangesUI);
         }
         void ChangesUI()
@@ -645,9 +710,13 @@ namespace GokouKotori.MaterialPreview
                 foreach (var name in session.OriginalOverride.Names().Except(Current.Override.Names())) panel.Add(new Label(name + ": Override解除"));
             }
             if (Current == null || session.Entries.Any(e => e.Source == null)) return;
-            foreach (var change in MaterialSaveService.Changes(session, Current))
-                panel.Add(new Label(session.Entries[change.Key].Source.name + ": " + string.Join(", ", change.Value.Names())) {style = {whiteSpace = WhiteSpace.Normal}});
-            rootVisualElement.Q<Label>("editor-title").text = Current.Name + (session.Entries.Count > selected ? " / " + session.Entries[selected].Source.name : "");
+            for (var i = 0; i < session.Entries.Count; i++)
+            {
+                var change = CachedDelta(session.Entries[i].ComparisonBaseline, Current.Materials[i]);
+                if (change.Changed)
+                    panel.Add(new Label(session.Entries[i].Source.name + ": " + string.Join(", ", change.Names())) {style = {whiteSpace = WhiteSpace.Normal}});
+            }
+            rootVisualElement.Q<Label>("editor-title").text = Current.Name + (selected >= 0 && session.Entries.Count > selected ? " / " + session.Entries[selected].Source.name : "");
         }
         void ExistingUI()
         {
@@ -656,6 +725,9 @@ namespace GokouKotori.MaterialPreview
             panel.Clear();
             if (Current == null || selected < 0 || selected >= session.Entries.Count || session.Entries[selected].Source == null) return;
             var entry = session.Entries[selected];
+            var readOnly = session.Mlic.ReadOnlyProperties(entry.Baseline).Select(p => p.Name).ToArray();
+            if (readOnly.Length > 0) panel.Add(new HelpBox("MLIC画像は読み取り専用: " + string.Join(", ", readOnly)
+                + "。Texture・Scale・Offsetは変更できません。Shader変更でも対象画像のプロパティを維持する必要があります。MLICを変更した場合は比較を開始し直してください。", HelpBoxMessageType.Info));
             if (entry.Layers.Count == 0) panel.Add(new Label("既存の上書きはありません。"));
             for (int i = 0; i < entry.Layers.Count; i++)
             {
@@ -682,12 +754,12 @@ namespace GokouKotori.MaterialPreview
                     var propertyName = name;
                     var remove = new Button(() => Guard(() => { session.RemoveOverride(Current, propertyName); Changed(); }))
                         { text = propertyName + " のOverrideを解除" };
-                    remove.SetEnabled(!session.Saved); panel.Add(remove);
+                    remove.SetEnabled(!session.Saved && !session.Entries.Any(e => session.Mlic.ReadOnlyProperties(e.Baseline).Any(p => p.Name == propertyName))); panel.Add(remove);
                 }
                 return;
             }
             if (saveMode != SaveMode.ExistingOverrides) return;
-            var targets = entry.Layers.Select(l => l.Component).Where(c => c != null).Distinct().ToList();
+            var targets = entry.Layers.Select(l => l.Component).Where(ExistingOverrides.IsSupported).Distinct().ToList();
             if (targets.Count == 0)
             {
                 panel.Add(new Label("更新先のAOME / TTTがありません。Variant保存等を選択してください。") {style = {whiteSpace = WhiteSpace.Normal}});
@@ -704,8 +776,9 @@ namespace GokouKotori.MaterialPreview
             if (material == null) return "未割り当て";
             if (name == "Shader") return material.shader == null ? "なし" : material.shader.name;
             if (name == "Render Queue") return MaterialDelta.RawQueue(material).ToString();
-            var value = MaterialDelta.Values(material).FirstOrDefault(p => p.Name == name);
-            if (value == null) return "—";
+            var index = material.shader == null ? -1 : material.shader.FindPropertyIndex(name);
+            if (index < 0) return "—";
+            var value = PropertyValue.Read(material, index);
             switch (value.Type)
             {
                 case ShaderPropertyType.Color: return value.Color.ToString("G5");
@@ -768,6 +841,7 @@ namespace GokouKotori.MaterialPreview
                     + (saveMode == SaveMode.ExistingOverrides ? "\n更新先: " + ExistingOverrides.Location(candidate.UpdateTargets[c.Key]) : "")));
                 if (session.EditingComponent) details = "更新先: " + ExistingOverrides.Location(session.EditTarget) + "\n" + details
                     + "\nOverride解除: " + string.Join(", ", session.OriginalOverride.Names().Except(candidate.Override.Names()));
+                if (session.RendererOnly && session.EditingComponent) details += "\n\n" + RendererEditImpact();
                 if (!EditorUtility.DisplayDialog("保存内容の確認", candidate.Name + "\n検証・保存を開始すると途中キャンセルはできません。完了または失敗までお待ちください。\n方式: " + saveMode + "\n" + details
                     + (saveMode == SaveMode.DirectMaterial ? "\n\n共有元の.matを更新し、他のPrefab・Sceneにも影響します。" : "")
                     + (saveMode == SaveMode.MaterialVariant ? "\n保存先: " + outputFolder : "")
@@ -777,6 +851,7 @@ namespace GokouKotori.MaterialPreview
                 EditorUtility.DisplayProgressBar("Material Preview", "保存予定のMaterial状態を検証しています…（途中キャンセル不可）", .3f);
                 ReleaseShaderEditor();
                 MaterialSaveService.Save(session, candidate, saveMode, outputFolder, true);
+                ReleaseChangeTracking();
                 editing = saving = 0;
                 hasUnsavedChanges = false; blocked = false; error = null; Refresh();
                 return true;

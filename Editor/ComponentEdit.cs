@@ -105,12 +105,14 @@ namespace GokouKotori.MaterialPreview
         public Component EditTarget;
         public OverrideState OriginalOverride;
 
-        internal static ComparisonSession CreateForComponent(Component component)
+        internal static ComparisonSession CreateForComponent(Component component, Renderer previewRenderer = null)
         {
             if (!ExistingOverrides.IsSupported(component)) throw new InvalidOperationException("MaterialModifierまたはAOMEを選択してください。");
             var avatar = ExistingOverrides.FindAvatar(component.gameObject);
             if (avatar == null) throw new InvalidOperationException("Scene上のアバター内の設定を選択してください。");
-            var session = Create(avatar, new[] {avatar});
+            if (previewRenderer != null && (!RendererEdit.CanOpen(previewRenderer) || !Belongs(previewRenderer, avatar)))
+                throw new InvalidOperationException("編集設定と同じアバター内のRendererを指定してください。");
+            var session = Create(avatar, new[] {avatar}, previewRenderer);
             try
             {
                 foreach (var candidate in session.Candidates.ToArray()) session.Remove(candidate);
@@ -125,13 +127,17 @@ namespace GokouKotori.MaterialPreview
                     {
                         var slot = session.Slots[i]; slot.Entry = -1; slot.InScope = false;
                         var evaluated = evaluation.Slots[i];
-                        if (!evaluated.Layers.Any(l => l.Component == component)) continue;
+                        var layer = evaluated.Layers.LastOrDefault(l => l.Component == component);
+                        if (layer == null) continue;
                         slot.InScope = true;
-                        var entry = session.Entries.FindIndex(e => e.Source == slot.Source && !MaterialDelta.Between(e.Baseline, evaluated.Baseline).Changed);
+                        var entry = session.Entries.FindIndex(e => e.Source == slot.Source
+                            && !MaterialDelta.Between(e.Baseline, evaluated.Baseline).Changed
+                            && !MaterialDelta.Between(e.OverrideBaseline, layer.Before).Changed);
                         if (entry < 0)
                         {
                             entry = session.Entries.Count;
                             session.Entries.Add(new MaterialEntry { Source = slot.Source, Baseline = Copy(evaluated.Baseline),
+                                OverrideBaseline = Copy(layer.Before),
                                 OriginalJson = EditorJsonUtility.ToJson(slot.Source), DependencyHash = Dependencies(slot.Source), Layers = slot.Layers });
                         }
                         slot.Entry = entry;
@@ -151,6 +157,7 @@ namespace GokouKotori.MaterialPreview
         {
             var result = CreateInstance<ComparisonSession>(); result.hideFlags = HideFlags.HideAndDontSave;
             result.Avatar = Avatar;
+            result.Mlic = Mlic; result.OwnsMlic = false;
             try
             {
                 result.Slots = Slots.Select(s => new MaterialSlot { Renderer = s.Renderer, Index = s.Index, Source = s.Source, Baseline = Copy(s.Source) }).ToList();
@@ -203,6 +210,7 @@ namespace GokouKotori.MaterialPreview
             if (!EditingComponent || Saved) return;
             foreach (var candidate in Candidates)
             {
+                Mlic.ValidateCandidate(this, candidate);
                 var changes = candidate.Materials.Select((m, i) => MaterialDelta.Between(candidate.SyncedMaterials[i], m)).Where(d => d.Changed).ToArray();
                 if (changes.Length == 0) continue;
                 // Keep unsupported GUI state for preview and validation, without repeating synchronization every frame.
@@ -215,6 +223,8 @@ namespace GokouKotori.MaterialPreview
         }
         internal void RemoveOverride(Candidate candidate, string name)
         {
+            if (Entries.Any(e => Mlic.ReadOnlyProperties(e.Baseline).Any(p => p.Name == name)))
+                throw new InvalidOperationException(name + ": MLICの対象画像のOverrideは解除できません。");
             SyncComponentEdits();
             Undo.RecordObject(this, "Overrideを解除");
             Undo.RecordObjects(candidate.Materials.Cast<Object>().ToArray(), "Overrideを解除");

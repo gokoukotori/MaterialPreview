@@ -1,4 +1,9 @@
 .workspace { flex-grow: 1; min-height: 0; padding: 8px; }
+.hidden { display: none; }
+#renderer-edit-target { flex-shrink: 0; margin-bottom: 6px; }
+#renderer-edit-target Label { white-space: normal; }
+#renderer-target { flex-direction: column; }
+#renderer-target .unity-base-popup-field__text { white-space: normal; }
 .toolbar { flex-direction: row; align-items: center; margin-bottom: 6px; flex-wrap: wrap; flex-shrink: 0; }
 .toolbar > * { margin-right: 6px; flex-shrink: 0; }
 .avatar-field { min-width: 280px; flex-grow: 1; }

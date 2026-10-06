@@ -73,8 +73,7 @@ namespace GokouKotori.MaterialPreview
             {
                 // Keep the complete avatar in the session for save validation, but only
                 // create preview geometry for the selected avatar/outfit roots.
-                var transform = renderer.transform;
-                if (!session.Roots.Any(root => transform.IsChildOf(root.transform))) continue;
+                if (!session.IncludesInPreview(renderer)) continue;
                 var obj = NewObject(renderer.name);
                 var mesh = new Mesh {hideFlags = HideFlags.HideAndDontSave};
                 obj.AddComponent<MeshFilter>().sharedMesh = mesh;
@@ -122,7 +121,9 @@ namespace GokouKotori.MaterialPreview
                 {
                 var renderer = original;
                 display.Object.SetActive(original.enabled && original.gameObject.activeInHierarchy);
-                if (renderer is SkinnedMeshRenderer smr) smr.BakeMesh(display.Mesh);
+                // Bake relative to the full renderer transform, including scale.
+                // The display's lossyScale below then applies hierarchy scale only once.
+                if (renderer is SkinnedMeshRenderer smr) smr.BakeMesh(display.Mesh, true);
                 else
                 {
                     var source = renderer.GetComponent<MeshFilter>()?.sharedMesh;

@@ -9,7 +9,8 @@ namespace GokouKotori.MaterialPreview
 {
     [Serializable] internal sealed class MaterialEntry
     {
-        public Material Source, Baseline;
+        public Material Source, Baseline, OverrideBaseline;
+        internal Material ComparisonBaseline => OverrideBaseline != null ? OverrideBaseline : Baseline;
         public string OriginalJson, DependencyHash;
         public List<ExistingLayer> Layers = new List<ExistingLayer>();
     }
@@ -36,6 +37,8 @@ namespace GokouKotori.MaterialPreview
     {
         public GameObject Avatar;
         public List<GameObject> Roots = new List<GameObject>();
+        public bool RendererOnly;
+        public Renderer PreviewRenderer;
         public List<MaterialEntry> Entries = new List<MaterialEntry>();
         public List<MaterialSlot> Slots = new List<MaterialSlot>();
         public List<Candidate> Candidates = new List<Candidate>();
@@ -44,6 +47,8 @@ namespace GokouKotori.MaterialPreview
         public string Configuration;
         public bool Saved;
         public int Revision;
+        public MlicPreview Mlic = new MlicPreview();
+        public bool OwnsMlic = true;
 
         internal static bool IsAvatar(GameObject obj) => obj != null && obj.GetComponents<Component>()
             .Any(c => c != null && c.GetType().FullName == "VRC.SDK3.Avatars.Components.VRCAvatarDescriptor");
@@ -60,22 +65,32 @@ namespace GokouKotori.MaterialPreview
             m.parent = null;
             return m;
         }
-        internal static ComparisonSession Create(GameObject avatar, IEnumerable<GameObject> roots)
+        internal bool IncludesInPreview(Renderer renderer) => RendererOnly ? renderer == PreviewRenderer
+            : Roots.Any(root => root != null && renderer.transform.IsChildOf(root.transform));
+
+        internal static ComparisonSession CreateForRenderer(Renderer renderer)
+        {
+            if (!RendererEdit.CanOpen(renderer)) throw new InvalidOperationException("Scene上のアバター内のMeshRendererまたはSkinnedMeshRendererを指定してください。EditorOnlyは対象外です。");
+            return Create(ExistingOverrides.FindAvatar(renderer.gameObject), new[] { renderer.gameObject }, renderer);
+        }
+
+        internal static ComparisonSession Create(GameObject avatar, IEnumerable<GameObject> roots, Renderer previewRenderer = null)
         {
             if (ExistingOverrides.FindAvatar(avatar) != avatar || avatar == null) throw new InvalidOperationException("Scene上のVRCAvatarDescriptorを持つアバターを指定してください（Prefab編集モードは対象外）。");
             var session = CreateInstance<ComparisonSession>(); session.hideFlags = HideFlags.HideAndDontSave;
             session.Avatar = avatar; session.Roots = roots.Distinct().ToList();
+            session.RendererOnly = previewRenderer != null; session.PreviewRenderer = previewRenderer;
             try
             {
                 if (session.Roots.Count == 0 || session.Roots.Any(r => r == null || !r.transform.IsChildOf(avatar.transform)))
                     throw new InvalidOperationException("対象ルートは選択アバター配下に指定してください。");
-                foreach (var renderer in avatar.GetComponentsInChildren<Renderer>(true).Where(r => Belongs(r, avatar)))
+                foreach (var renderer in avatar.GetComponentsInChildren<Renderer>(true).Where(r => Belongs(r, avatar) && !ExistingOverrides.EditorOnly(r.transform)))
                 {
                     if (!(renderer is MeshRenderer) && !(renderer is SkinnedMeshRenderer))
                     { session.Warnings.Add(renderer.name + ": このRendererはプレビュー非対応です。"); continue; }
                     if (renderer.HasPropertyBlock()) throw new InvalidOperationException(renderer.name + ": MaterialPropertyBlockによる上書きは比較・保存に未対応です。");
                     session.Renderers.Add(renderer);
-                    var inScope = session.Roots.Any(r => renderer.transform.IsChildOf(r.transform));
+                    var inScope = session.IncludesInPreview(renderer);
                     var originals = renderer.sharedMaterials;
                     for (int i = 0; i < originals.Length; i++)
                     {
@@ -110,7 +125,7 @@ namespace GokouKotori.MaterialPreview
             SyncComponentEdits();
             var candidate = new Candidate {Name = "TO BE " + (Candidates.Count + 1), Visible = Candidates.Count(c => c.Visible) < 3};
             candidate.Materials = (from == null ? Entries.Select(e => e.Baseline) : from.Materials).Select(Copy).ToList();
-            candidate.UpdateTargets = from == null ? Entries.Select(e => e.Layers.LastOrDefault(l => l.Component != null)?.Component).ToList()
+            candidate.UpdateTargets = from == null ? Entries.Select(e => e.Layers.LastOrDefault(l => ExistingOverrides.IsSupported(l.Component))?.Component).ToList()
                 : new List<Component>(from.UpdateTargets);
             if (EditingComponent)
             {
@@ -142,9 +157,11 @@ namespace GokouKotori.MaterialPreview
         internal void Validate()
         {
             if (Avatar == null) throw new InvalidOperationException("対象アバターが削除されました。");
+            if (RendererOnly && (PreviewRenderer == null || !RendererEdit.CanOpen(PreviewRenderer)
+                || !Belongs(PreviewRenderer, Avatar))) throw new InvalidOperationException("対象Rendererが削除または変更されました。比較を開始し直してください。");
             if (Saved) throw new InvalidOperationException("保存済みです。新しい比較を開始してください。");
             if (Roots.Any(r => r == null || !r.transform.IsChildOf(Avatar.transform))) throw new InvalidOperationException("対象ルートが変更されました。比較を開始し直してください。");
-            var current = Avatar.GetComponentsInChildren<Renderer>(true).Where(r => Belongs(r, Avatar) && (r is MeshRenderer || r is SkinnedMeshRenderer)).ToArray();
+            var current = Avatar.GetComponentsInChildren<Renderer>(true).Where(r => Belongs(r, Avatar) && !ExistingOverrides.EditorOnly(r.transform) && (r is MeshRenderer || r is SkinnedMeshRenderer)).ToArray();
             if (!new HashSet<Renderer>(current).SetEquals(Renderers)) throw new InvalidOperationException("Renderer構成が変更されました。");
             foreach (var renderer in Renderers)
             {
@@ -161,6 +178,7 @@ namespace GokouKotori.MaterialPreview
                 if (entry.Source == null || EditorJsonUtility.ToJson(entry.Source) != entry.OriginalJson || Dependencies(entry.Source) != entry.DependencyHash)
                     throw new InvalidOperationException("元マテリアルが外部で変更されました。比較を開始し直してください。");
             if (ConfigurationSignature() != Configuration) throw new InvalidOperationException("アバターの設定が変更されました。比較を開始し直してください。");
+            Mlic.Validate();
         }
         internal void Remove(Candidate candidate)
         {
@@ -171,7 +189,11 @@ namespace GokouKotori.MaterialPreview
         internal void Release()
         {
             foreach (var candidate in Candidates.ToArray()) Remove(candidate);
-            foreach (var entry in Entries) if (entry.Baseline != null) Object.DestroyImmediate(entry.Baseline);
+            foreach (var entry in Entries)
+            {
+                if (entry.Baseline != null) Object.DestroyImmediate(entry.Baseline);
+                if (entry.OverrideBaseline != null) Object.DestroyImmediate(entry.OverrideBaseline);
+            }
             foreach (var slot in Slots)
             {
                 if (slot.Baseline != null) Object.DestroyImmediate(slot.Baseline);
@@ -182,6 +204,7 @@ namespace GokouKotori.MaterialPreview
                 }
             }
             Entries.Clear(); Slots.Clear();
+            if (OwnsMlic) Mlic.Release();
         }
     }
 }

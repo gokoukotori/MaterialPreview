@@ -62,7 +62,7 @@ namespace GokouKotori.MaterialPreview
         internal static List<string> Check(ComparisonSession session, Candidate candidate, SaveMode mode)
         {
             var errors = new List<string>();
-            try { session.Validate(); session.SyncComponentEdits(); } catch (Exception e) { errors.Add(e.Message); return errors; }
+            try { session.Validate(); session.Mlic.ValidateCandidate(session, candidate); session.SyncComponentEdits(); } catch (Exception e) { errors.Add(e.Message); return errors; }
             var changes = Changes(session, candidate);
             if (!session.CandidateChanged(candidate)) errors.Add("変更がありません。");
             if (session.EditingComponent)
@@ -87,7 +87,7 @@ namespace GokouKotori.MaterialPreview
                 if (mode == SaveMode.ExistingOverrides && !session.EditingComponent)
                 {
                     var target = candidate.UpdateTargets[change.Key];
-                    if (target == null || !entry.Layers.Any(l => l.Component == target))
+                    if (!ExistingOverrides.IsSupported(target) || !entry.Layers.Any(l => l.Component == target))
                         errors.Add(entry.Source.name + ": 更新先のAOME / TTT設定を選択してください。Prefab割り当てのみの場合はVariant保存等を選択してください。");
                 }
                 if (!session.EditingComponent && mode != SaveMode.MaterialVariant && session.Avatar.GetComponentsInChildren<Renderer>(true)
@@ -214,7 +214,10 @@ namespace GokouKotori.MaterialPreview
                     // A Variant can serialize an inherited queue differently while resolving to the same queue.
                     // Preserve raw queue differences during editing, but compare effective values after a build.
                     if (expected.renderQueue == target.sharedMaterials[slot.Index].renderQueue) difference.QueueChanged = false;
-                    // Persistent input textures retain their references; newly generated textures deliberately fail closed.
+                    difference.Properties.RemoveAll(p => p.Type == UnityEngine.Rendering.ShaderPropertyType.Texture
+                        && p.Scale == expected.GetTextureScale(p.Name) && p.Offset == expected.GetTextureOffset(p.Name)
+                        && session.Mlic.SameOutput(expected.GetTexture(p.Name), p.Texture));
+                    // Only known MLIC outputs can match by content; other generated textures fail closed.
                     if (difference.Changed) throw new InvalidOperationException(slot.Path + " [" + slot.Index + "]: 保存結果のMaterial状態が期待値と一致しません。\n" + string.Join(", ", difference.Names()));
                 }
             }

@@ -8,7 +8,6 @@ namespace GokouKotori.MaterialPreview
     public sealed partial class MaterialPreviewWindow
     {
         VrPreviewSession vr;
-        VrChangeTracker vrChanges;
         bool vrEnabled;
         [SerializeField] float vrRealEyeHeight = 1.6f, vrEyeHeight = 1.6f;
         string vrMessage;
@@ -106,10 +105,9 @@ namespace GokouKotori.MaterialPreview
                 vr = new VrPreviewSession(session, lighting, new OpenVrRuntime(),
                     () => this != null && session != null && !blocked && vrEnabled,
                     () => { StopLightOrbit(); SyncLightingUI(); cameraRenderPending = true; },
-                    message => { vr = null; vrChanges?.Dispose(); vrChanges = null; vrMessage = message; UpdateVrUI(); },
+                    message => { vr = null; vrMessage = message; UpdateVrUI(); },
                     vrRealEyeHeight, vrEyeHeight,
                     height => { vrRealEyeHeight = height; vrMessage = null; UpdateVrUI(); }, Repaint);
-                vrChanges = new VrChangeTracker(session);
                 vrMessage = null;
             }
             catch (Exception ex) { vrMessage = "開始できません: " + Integration.Message(ex); }
@@ -118,7 +116,6 @@ namespace GokouKotori.MaterialPreview
         void StopVrPreview()
         {
             var current = vr; vr = null;
-            vrChanges?.Dispose(); vrChanges = null;
             try { current?.Dispose(); if (current != null) vrMessage = "VRプレビューを終了しました。"; }
             catch (Exception ex) { vrMessage = "VR終了時: " + Integration.Message(ex); }
             UpdateVrUI();

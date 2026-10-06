@@ -6,16 +6,23 @@ using Object = UnityEngine.Object;
 
 namespace GokouKotori.MaterialPreview
 {
-    // Poll native dirty versions; serialize/evaluate only after an actual edit.
+    // Poll native versions/checksums; serialize/evaluate only after an actual edit.
     // Full validation still runs before VR starts and before every save.
-    internal sealed class VrChangeTracker : IDisposable
+    internal sealed class ComparisonChangeTracker : IDisposable
     {
-        struct Version
+        internal readonly struct Version
         {
-            internal Object Target;
-            internal int Dirty;
-            internal Version(Object target) { Target = target; Dirty = EditorUtility.GetDirtyCount(target); }
-            internal bool Changed => Target == null || EditorUtility.GetDirtyCount(Target) != Dirty;
+            internal readonly Object Target;
+            readonly int dirty;
+            readonly int materialCrc;
+            internal Version(Object target)
+            {
+                Target = target; dirty = EditorUtility.GetDirtyCount(target);
+                materialCrc = target is Material material ? material.ComputeCRC() : 0;
+            }
+            // CopyPropertiesFromMaterial does not always advance the dirty count.
+            internal bool Changed => Target == null || EditorUtility.GetDirtyCount(Target) != dirty
+                || (Target is Material material && material.ComputeCRC() != materialCrc);
         }
 
         readonly ComparisonSession session;
@@ -24,7 +31,7 @@ namespace GokouKotori.MaterialPreview
         int revision = -1, sessionDirty, materialCount;
         bool sourceInvalidated, disposed;
 
-        internal VrChangeTracker(ComparisonSession session)
+        internal ComparisonChangeTracker(ComparisonSession session)
         {
             this.session = session;
             CaptureSources();
@@ -51,6 +58,8 @@ namespace GokouKotori.MaterialPreview
                 }
             foreach (var slot in session.Slots)
                 if (slot.Source != null && unique.Add(slot.Source)) sources.Add(new Version(slot.Source));
+            foreach (var dependency in session.Mlic.Dependencies)
+                if (dependency.Asset != null && unique.Add(dependency.Asset)) sources.Add(new Version(dependency.Asset));
             sourceInvalidated = false;
         }
 

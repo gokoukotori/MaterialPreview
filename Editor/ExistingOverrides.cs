@@ -48,25 +48,13 @@ namespace GokouKotori.MaterialPreview
             if (aoComponents.Length > 0)
             {
                 var processor = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialEditorProcessor");
-                var assignmentType = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialAssignment");
-                var slotType = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialSlotId");
-                var set = Activator.CreateInstance(typeof(HashSet<>).MakeGenericType(assignmentType));
-                var add = set.GetType().GetMethod("Add");
-                var assignments = new Dictionary<object, MaterialSlot>();
+                var assignments = new AoAssignments(session.Slots);
                 var merged = new Dictionary<MaterialSlot, object>();
-                foreach (var slot in session.Slots.Where(s => s.Source != null))
-                {
-                    var id = Activator.CreateInstance(slotType, new object[] {slot.Renderer, slot.Index});
-                    var assignment = Activator.CreateInstance(assignmentType, new object[] {id, slot.Source});
-                    add.Invoke(set, new[] {assignment}); assignments.Add(assignment, slot);
-                }
                 foreach (var component in aoComponents)
                 {
                     if (!(stopAtSelected && component == selected) && !(bool)Integration.Invoke(processor, "IsEffective", component, null)) continue;
-                    var targets = (IEnumerable)Integration.Invoke(processor, "SelectTargetAssignments", set, component, null, null, null);
-                    foreach (var target in targets)
+                    foreach (var slot in assignments.Select(component))
                     {
-                        var slot = assignments[target];
                         if (!merged.TryGetValue(slot, out var settings))
                         {
                             settings = Activator.CreateInstance(Integration.Require("Aoyon.MaterialEditor.MaterialOverrideSettings"), true);
@@ -85,21 +73,77 @@ namespace GokouKotori.MaterialPreview
             var phases = (IDictionary)Integration.Invoke(search, "FindAtPhase", session.Avatar);
             var order = (IEnumerable)Integration.Invoke(Integration.Require("net.rs64.TexTransTool.TexTransPhaseUtility"), "EnumerateAllPhase");
             foreach (var phase in order)
-                foreach (Component component in (IEnumerable)phases[phase])
+            {
+                var active = ((IEnumerable)phases[phase]).Cast<Component>().Where(component =>
+                    (stopAtSelected && component == selected) || ((bool)Integration.Invoke(search, "CheckIsActiveBehavior", component, session.Avatar)
+                        && !EditorOnly(component.transform))).ToArray();
+                var canvases = active.Where(MlicPreview.IsCanvas).ToArray();
+                var inputs = canvases.Length > 0 && !session.Mlic.HasPhase(phase.ToString()) ? session.Slots.Select(s => ComparisonSession.Copy(s.Baseline)).ToArray() : null;
+                try
                 {
-                    if (!(stopAtSelected && component == selected) && (!(bool)Integration.Invoke(search, "CheckIsActiveBehavior", component, session.Avatar) || EditorOnly(component.transform))) continue;
-                    if (!IsTtt(component))
+                    foreach (var component in active)
                     {
-                        session.Warnings.Add(component.name + ": " + component.GetType().Name + " の生成・合成結果は表示対象外です。保存時に最終結果を検証します。");
-                        continue;
+                        if (MlicPreview.IsCanvas(component)) continue;
+                        if (!IsTtt(component))
+                        {
+                            session.Warnings.Add(component.name + ": " + component.GetType().Name + " の生成・合成結果は表示対象外です。保存時に最終結果を検証します。");
+                            continue;
+                        }
+                        var material = Integration.Get(component, "TargetMaterial") as Material;
+                        foreach (var slot in session.Slots.Where(s => s.Source != null && s.Source == material)) AddLayer(slot, component, null, component == selected ? replacement : null, stopAtSelected && component == selected);
+                        if (stopAtSelected && component == selected) return;
                     }
-                    var material = Integration.Get(component, "TargetMaterial") as Material;
-                    foreach (var slot in session.Slots.Where(s => s.Source != null && s.Source == material)) AddLayer(slot, component, null, component == selected ? replacement : null, stopAtSelected && component == selected);
-                    if (stopAtSelected && component == selected) return;
+                    if (canvases.Length > 0)
+                    {
+                        if (inputs != null) session.Mlic.Capture(session, phase.ToString(), active, inputs);
+                        var before = session.Slots.Select(s => ComparisonSession.Copy(s.Baseline)).ToArray();
+                        try
+                        {
+                            session.Mlic.Apply(session, phase.ToString());
+                            for (var i = 0; i < session.Slots.Count; i++)
+                            {
+                                var slot = session.Slots[i];
+                                if (before[i] == null || slot.Baseline == null) continue;
+                                var names = MaterialDelta.Between(before[i], slot.Baseline).Properties.Select(p => p.Name).ToList();
+                                if (names.Count == 0) continue;
+                                slot.Layers.Add(new ExistingLayer { Component = canvases[0], Label = "MLIC（読み取り専用）: " + string.Join(", ", canvases.Select(c => c.name)),
+                                    Before = before[i], After = ComparisonSession.Copy(slot.Baseline), ExplicitProperties = names });
+                                before[i] = null;
+                            }
+                        }
+                        finally { foreach (var material in before) if (material != null) UnityEngine.Object.DestroyImmediate(material); }
+                    }
                 }
+                finally { if (inputs != null) foreach (var material in inputs) if (material != null) UnityEngine.Object.DestroyImmediate(material); }
+            }
         }
 
-        static bool EditorOnly(Transform transform)
+        internal sealed class AoAssignments
+        {
+            readonly object set;
+            readonly Dictionary<object, MaterialSlot> slots = new Dictionary<object, MaterialSlot>();
+            internal AoAssignments(IEnumerable<MaterialSlot> source)
+            {
+                var assignmentType = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialAssignment");
+                var slotType = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialSlotId");
+                set = Activator.CreateInstance(typeof(HashSet<>).MakeGenericType(assignmentType));
+                var add = set.GetType().GetMethod("Add");
+                foreach (var slot in source.Where(s => s.Source != null))
+                {
+                    var id = Activator.CreateInstance(slotType, new object[] { slot.Renderer, slot.Index });
+                    var assignment = Activator.CreateInstance(assignmentType, new object[] { id, slot.Source });
+                    add.Invoke(set, new[] { assignment }); slots.Add(assignment, slot);
+                }
+            }
+            internal IEnumerable<MaterialSlot> Select(Component component)
+            {
+                var processor = Integration.Require("Aoyon.MaterialEditor.Processor.MaterialEditorProcessor");
+                var targets = (IEnumerable)Integration.Invoke(processor, "SelectTargetAssignments", set, component, null, null, null);
+                foreach (var target in targets) yield return slots[target];
+            }
+        }
+
+        internal static bool EditorOnly(Transform transform)
         {
             for (var t = transform; t != null; t = t.parent) if (t.CompareTag("EditorOnly")) return true;
             return false;

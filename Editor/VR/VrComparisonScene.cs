@@ -151,7 +151,7 @@ namespace GokouKotori.MaterialPreview
                 }
                 foreach (var renderer in session.Renderers)
                 {
-                    if (renderer == null || !session.Roots.Any(root => root != null && renderer.transform.IsChildOf(root.transform))) continue;
+                    if (renderer == null || !session.IncludesInPreview(renderer)) continue;
                     geometry.Add(new Geometry { Original = renderer,
                         Mesh = new Mesh { hideFlags = HideFlags.HideAndDontSave },
                         Slots = session.Slots.Where(slot => slot.Renderer == renderer).OrderBy(slot => slot.Index).ToArray() });

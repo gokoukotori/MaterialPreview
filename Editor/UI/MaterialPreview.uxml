@@ -15,6 +15,7 @@
             <ui:VisualElement class="list-panel">
                 <ui:Label text="マテリアル" class="heading" />
                 <uie:ToolbarSearchField name="search" />
+                <ui:VisualElement name="renderer-edit-target" class="hidden" />
                 <ui:ScrollView name="materials" />
             </ui:VisualElement>
             <ui:VisualElement class="center-panel">
@@ -52,7 +53,7 @@
                 <ui:ScrollView name="property-comparison" class="property-comparison" mode="Horizontal">
                   <ui:VisualElement name="property-columns">
                     <ui:VisualElement class="baseline-panel">
-                        <ui:Label text="AS IS（参照専用）" class="heading" tooltip="選択マテリアルの比較開始時点の設定です。" />
+                        <ui:Label name="baseline-title" text="AS IS（参照専用）" class="heading" tooltip="選択マテリアルの比較開始時点の設定です。" />
                         <ui:ScrollView name="baseline-inspector" vertical-scroller-visibility="AlwaysVisible" />
                     </ui:VisualElement>
                   </ui:VisualElement>
@@ -68,7 +69,7 @@
                 <ui:Foldout name="existing-foldout" text="既存の上書き（選択マテリアル）" value="true">
                     <ui:ScrollView name="existing-overrides" />
                 </ui:Foldout>
-                <ui:Label text="今回の変更" class="heading" />
+                <ui:Label name="changes-title" text="今回の変更" class="heading" />
                 <ui:ScrollView name="changes" class="changes" />
             </ui:VisualElement>
         </ui:VisualElement>
